@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
@@ -462,6 +463,15 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		if span.FullPath != "" {
 			urlPath = span.FullPath
 		}
+		// Strip query parameters from url.full by default to avoid leaking
+		// sensitive data (tokens, PII). Include them only when explicitly opted in.
+		var queryString string
+		if idx := strings.IndexByte(urlPath, '?'); idx > 0 {
+			queryString = urlPath[idx+1:]
+			if _, ok := optionalAttrs[attr.HTTPUrlQuery]; !ok {
+				urlPath = urlPath[:idx]
+			}
+		}
 		url := urlPath
 		if span.HasOriginalHost() {
 			url = request.URLFull(scheme, host, urlPath)
@@ -477,6 +487,10 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
+		}
+
+		if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok && queryString != "" {
+			attrs = append(attrs, request.HTTPUrlQuery(queryString))
 		}
 
 		if span.SubType == request.HTTPSubtypeElasticsearch && span.Elasticsearch != nil {

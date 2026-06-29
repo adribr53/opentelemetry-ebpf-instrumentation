@@ -21,6 +21,21 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
+type cachedProgInfo struct {
+	supported bool
+	probeType string
+	probeName string
+	idStr     string
+}
+
+type cachedMapInfo struct {
+	supported  bool
+	mapType    string
+	mapName    string
+	mapID      string
+	maxEntries int
+}
+
 // BPFCollector implements prometheus.Collector for collecting metrics about currently loaded eBPF programs.
 type BPFCollector struct {
 	promCfg         *PrometheusConfig
@@ -33,6 +48,8 @@ type BPFCollector struct {
 	probeLatencyDesc *prometheus.Desc
 	mapSizeDesc      *prometheus.Desc
 	progs            map[ebpf.ProgramID]*BPFProgram
+	infoCache        map[ebpf.ProgramID]cachedProgInfo
+	mapInfoCache     map[ebpf.MapID]cachedMapInfo
 	probeMetrics     func() []ProbeMetrics
 	mapMetrics       func() []BpfMapMetrics
 	mu               sync.Mutex
@@ -131,6 +148,8 @@ func newCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *per
 		ctxInfo:         ctxInfo,
 		promConnect:     ctxInfo.Prometheus,
 		progs:           make(map[ebpf.ProgramID]*BPFProgram),
+		infoCache:       make(map[ebpf.ProgramID]cachedProgInfo),
+		mapInfoCache:    make(map[ebpf.MapID]cachedMapInfo),
 		probeLatencyDesc: prometheus.NewDesc(
 			prometheus.BuildFQName("bpf", "probe", "latency_seconds"),
 			"Latency of the probe in seconds",
@@ -249,6 +268,7 @@ func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
 	bc.enableBPFStatsRuntime()
 
 	probeMetrics := make([]ProbeMetrics, 0)
+	seen := make(map[ebpf.ProgramID]struct{})
 
 	for id := ebpf.ProgramID(0); ; {
 		nextID, err := ebpf.ProgramGetNextID(id)
@@ -256,38 +276,51 @@ func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
 			break
 		}
 		id = nextID
+		seen[id] = struct{}{}
+
+		cached, haveCached := bc.infoCache[id]
+		if haveCached && !cached.supported {
+			continue
+		}
 
 		program, err := ebpf.NewProgramFromID(id)
 		if err != nil {
 			bc.log.Debug("failed to load program", "ID", id, "error", err)
 			continue
 		}
-		defer program.Close()
 
-		info, err := program.Info()
-		if err != nil {
-			bc.log.Debug("failed to get program info", "ID", id, "error", err)
-			continue
+		if !haveCached {
+			info, err := program.Info()
+			if err != nil {
+				bc.log.Debug("failed to get program info", "ID", id, "error", err)
+				program.Close()
+				continue
+			}
+
+			switch info.Type {
+			case ebpf.Kprobe, ebpf.SocketFilter, ebpf.SchedCLS, ebpf.SkMsg, ebpf.SockOps:
+			default:
+				program.Close()
+				bc.infoCache[id] = cachedProgInfo{supported: false}
+				continue
+			}
+
+			cached = cachedProgInfo{
+				supported: true,
+				probeType: info.Type.String(),
+				probeName: getFuncName(info, id, bc.log),
+				idStr:     strconv.FormatUint(uint64(id), 10),
+			}
+			bc.infoCache[id] = cached
 		}
-
-		switch info.Type {
-		case ebpf.Kprobe, ebpf.SocketFilter, ebpf.SchedCLS, ebpf.SkMsg, ebpf.SockOps:
-		// Supported program types
-		default:
-			continue // Skip unsupported program types
-		}
-
-		name := getFuncName(info, id, bc.log)
 
 		stats, err := program.Stats()
+		program.Close()
 		if err != nil {
 			bc.log.Debug("failed to get program stats", "ID", id, "error", err)
 			continue
 		}
 
-		idStr := strconv.FormatUint(uint64(id), 10)
-
-		// Get the previous stats
 		probe, ok := bc.progs[id]
 		if !ok {
 			probe = &BPFProgram{
@@ -305,14 +338,22 @@ func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
 		}
 		latency, count := probe.calculateStats()
 		probeMetrics = append(probeMetrics, ProbeMetrics{
-			probeID:   idStr,
-			probeType: info.Type.String(),
-			probeName: name,
+			probeID:   cached.idStr,
+			probeType: cached.probeType,
+			probeName: cached.probeName,
 			latency:   latency,
 			count:     count,
 			program:   probe,
 		})
 	}
+
+	for id := range bc.infoCache {
+		if _, ok := seen[id]; !ok {
+			delete(bc.infoCache, id)
+			delete(bc.progs, id)
+		}
+	}
+
 	return probeMetrics
 }
 
@@ -332,30 +373,50 @@ func getFuncName(info *ebpf.ProgramInfo, id ebpf.ProgramID, log *slog.Logger) st
 }
 
 func (bc *BPFCollector) getMapMetrics() []BpfMapMetrics {
-	mapMetrics := make([]BpfMapMetrics, 0)
+	var mapMetrics []BpfMapMetrics
+	seen := make(map[ebpf.MapID]struct{})
+
 	for id := ebpf.MapID(0); ; {
 		nextID, err := ebpf.MapGetNextID(id)
 		if err != nil {
 			break
 		}
 		id = nextID
+		seen[id] = struct{}{}
+
+		cached, haveCached := bc.mapInfoCache[id]
+		if haveCached && !cached.supported {
+			continue
+		}
 
 		m, err := ebpf.NewMapFromID(id)
 		if err != nil {
 			bc.log.Debug("failed to load map", "ID", id, "error", err)
 			continue
 		}
-		defer m.Close()
 
-		info, err := m.Info()
-		if err != nil {
-			bc.log.Debug("failed to get map info", "ID", id, "error", err)
-			continue
-		}
+		if !haveCached {
+			info, err := m.Info()
+			if err != nil {
+				bc.log.Debug("failed to get map info", "ID", id, "error", err)
+				m.Close()
+				continue
+			}
 
-		// Only collect maps that are LRUHash
-		if info.Type != ebpf.LRUHash {
-			continue
+			if info.Type != ebpf.LRUHash {
+				m.Close()
+				bc.mapInfoCache[id] = cachedMapInfo{supported: false}
+				continue
+			}
+
+			cached = cachedMapInfo{
+				supported:  true,
+				mapType:    info.Type.String(),
+				mapName:    info.Name,
+				mapID:      strconv.FormatUint(uint64(id), 10),
+				maxEntries: int(info.MaxEntries),
+			}
+			bc.mapInfoCache[id] = cached
 		}
 
 		var count uint64
@@ -365,18 +426,25 @@ func (bc *BPFCollector) getMapMetrics() []BpfMapMetrics {
 		for iter.Next(&throwawayKey, &throwawayValues) {
 			count++
 		}
-		if err := iter.Err(); err == nil {
-			mapID := strconv.FormatUint(uint64(id), 10)
-			mapType := info.Type.String()
+		m.Close()
+
+		if iter.Err() == nil {
 			mapMetrics = append(mapMetrics, BpfMapMetrics{
-				mapType:    mapType,
-				mapName:    info.Name,
-				mapID:      mapID,
-				maxEntries: int(info.MaxEntries),
+				mapType:    cached.mapType,
+				mapName:    cached.mapName,
+				mapID:      cached.mapID,
+				maxEntries: cached.maxEntries,
 				entries:    count,
 			})
 		}
 	}
+
+	for id := range bc.mapInfoCache {
+		if _, ok := seen[id]; !ok {
+			delete(bc.mapInfoCache, id)
+		}
+	}
+
 	return mapMetrics
 }
 

@@ -38,15 +38,17 @@ func (p NetPrometheusConfig) Enabled() bool {
 type netMetricsReporter struct {
 	cfg *PrometheusConfig
 
-	flowBytes   *Expirer[prometheus.Counter]
-	flowPackets *Expirer[prometheus.Counter]
+	flowBytes      *Expirer[prometheus.Counter]
+	flowSynPackets *Expirer[prometheus.Counter]
+	flowPackets    *Expirer[prometheus.Counter]
 
 	interZone *Expirer[prometheus.Counter]
 
 	promConnect *connector.PrometheusManager
 
-	flowAttrs        []attributes.Field[*ebpf.Record, string]
-	flowPacketsAttrs []attributes.Field[*ebpf.Record, string]
+	flowAttrs           []attributes.Field[*ebpf.Record, string]
+	flowSynPacketsAttrs []attributes.Field[*ebpf.Record, string]
+	flowPacketsAttrs    []attributes.Field[*ebpf.Record, string]
 
 	interZoneAttrs []attributes.Field[*ebpf.Record, string]
 
@@ -113,6 +115,18 @@ func newNetReporter(
 		register = append(register, mr.flowBytes)
 	}
 
+	if cfg.CommonCfg.Features.NetworkFlowTCPSyn() {
+		log.Info("registering network flow syn packets metric")
+		mr.flowSynPacketsAttrs = attributes.PrometheusGetters(
+			ebpf.RecordStringGetters(recordGettersConfig),
+			provider.For(attributes.NetworkFlowTCPSyn))
+		mr.flowSynPackets = NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: attributes.NetworkFlowTCPSyn.Prom,
+			Help: "syn packets sent from a source network endpoint to a destination network endpoint",
+		}, labelNames(mr.flowSynPacketsAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+		register = append(register, mr.flowSynPackets)
+	}
+
 	if cfg.CommonCfg.Features.NetworkFlowPackets() {
 		log.Debug("registering network flow packets metric")
 		mr.flowPacketsAttrs = attributes.PrometheusGetters(
@@ -160,6 +174,7 @@ func (r *netMetricsReporter) collectMetrics(_ context.Context) {
 			r.observeFlowBytes(flow)
 			r.observeInterZone(flow)
 			r.observeFlowPackets(flow)
+			r.observeFlowTCPSyn(flow)
 		}
 	}
 }
@@ -170,6 +185,14 @@ func (r *netMetricsReporter) observeFlowBytes(flow *ebpf.Record) {
 	}
 	r.flowBytes.WithLabelValues(labelValues(flow, r.flowAttrs)...).
 		Metric.Add(float64(flow.Metrics.Bytes))
+}
+
+func (r *netMetricsReporter) observeFlowTCPSyn(flow *ebpf.Record) {
+	if r.flowSynPackets == nil || flow.Metrics.Flags&2 == 0 {
+		return
+	}
+	r.flowSynPackets.WithLabelValues(labelValues(flow, r.flowSynPacketsAttrs)...).
+		Metric.Add(float64(1))
 }
 
 func (r *netMetricsReporter) observeInterZone(flow *ebpf.Record) {

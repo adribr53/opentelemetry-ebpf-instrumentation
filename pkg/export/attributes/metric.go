@@ -34,6 +34,11 @@ var (
 		Prom:    "obi_network_flow_packets_total",
 		OTEL:    "obi.network.flow.packets",
 	}
+	NetworkFlowTCPSyn = Name{
+		Section: "obi.network.flow.tcp.syn",
+		Prom:    "obi_network_flow_tcp_syn_packets_total",
+		OTEL:    "obi.network.flow.tcp.syn",
+	}
 	NetworkInterZone = Name{
 		Section: "obi.network.inter.zone",
 		Prom:    "obi_network_inter_zone_bytes_total",

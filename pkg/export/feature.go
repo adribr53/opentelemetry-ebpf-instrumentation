@@ -29,6 +29,7 @@ const (
 	FeatureStatsTCPRetransmits
 	FeatureStatsTCPIo
 	FeatureNetworkInterZone
+	FeatureNetworkFlowTCPSyn
 	FeatureApplicationRED
 	FeatureSpanLegacy
 	FeatureSpanOTel
@@ -205,6 +206,10 @@ func (f Features) NetworkBytes() bool {
 
 func (f Features) NetworkFlowPackets() bool {
 	return f.any(FeatureNetworkFlowPackets)
+}
+
+func (f Features) NetworkFlowTCPSyn() bool {
+	return f.any(FeatureNetworkFlowTCPSyn)
 }
 
 func (f Features) StatMetrics() bool {

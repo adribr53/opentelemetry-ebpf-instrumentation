@@ -343,6 +343,9 @@ func getDefinitions(
 	)
 
 	return map[Section]AttrReportGroup{
+		NetworkFlowTCPSyn.Section: {
+			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkGeoIP, &networkKubeAttributes},
+		},
 		NetworkFlow.Section: {
 			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkGeoIP, &networkKubeAttributes},
 		},

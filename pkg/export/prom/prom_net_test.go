@@ -22,7 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-var mpConfig = &perapp.MetricsConfig{Features: export.FeatureNetwork | export.FeatureNetworkInterZone | export.FeatureNetworkFlowPackets}
+var mpConfig = &perapp.MetricsConfig{Features: export.FeatureNetwork | export.FeatureNetworkInterZone | export.FeatureNetworkFlowPackets | export.FeatureNetworkFlowTCPSyn}
 
 func TestMetricsExpiration(t *testing.T) {
 	now := syncedClock{now: time.Now()}
@@ -52,6 +52,9 @@ func TestMetricsExpiration(t *testing.T) {
 					attributes.NetworkFlowPackets.Section: attributes.InclusionLists{
 						Include: []string{"src_name", "dst_name"},
 					},
+					attributes.NetworkFlowTCPSyn.Section: attributes.InclusionLists{
+						Include: []string{"src_name", "dst_name"},
+					},
 				},
 			},
 			CommonCfg: mpConfig,
@@ -64,7 +67,7 @@ func TestMetricsExpiration(t *testing.T) {
 	metrics.Send([]*ebpf.Record{
 		{
 			CommonAttrs: pipe.CommonAttrs{DstName: "bar", SrcName: "foo"},
-			Metrics:     ebpf.NetFlowMetrics{Bytes: 123, Packets: 11},
+			Metrics:     ebpf.NetFlowMetrics{Bytes: 123, Packets: 11, Flags: 0x02},
 		},
 		{
 			CommonAttrs: pipe.CommonAttrs{DstName: "bae", SrcName: "baz"},
@@ -79,6 +82,7 @@ func TestMetricsExpiration(t *testing.T) {
 		assert.Contains(ct, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
 		assert.Contains(ct, exported, `obi_network_flow_packets_total{dst_name="bar",src_name="foo"} 11`)
 		assert.Contains(ct, exported, `obi_network_flow_packets_total{dst_name="bae",src_name="baz"} 33`)
+		assert.Contains(ct, exported, `obi_network_flow_tcp_syn_packets_total{dst_name="bar",src_name="foo"} 1`)
 	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout

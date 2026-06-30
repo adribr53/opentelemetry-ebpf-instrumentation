@@ -75,6 +75,7 @@ func newMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, inte
 type netMetricsExporter struct {
 	flowBytes      *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
 	flowPackets    *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
+	flowSynPackets *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
 	interZoneBytes *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
 	expireTTL      time.Duration
 	in             <-chan []*ebpf.Record
@@ -150,7 +151,24 @@ func newMetricsExporter(
 
 		nme.flowBytes = NewExpirer[*ebpf.Record, metric2.Int64Counter, float64](ctx, bytesMetric, attrs, timeNow, cfg.Metrics.TTL)
 	}
+	if cfg.CommonCfg.Features.NetworkFlowTCPSyn() {
+		log := log.With("metricFamily", "FlowSynPackets")
+		synMetric, err := ebpfEvents.Int64Counter(
+			attributes.NetworkFlowTCPSyn.OTEL,
+			metric2.WithDescription("syn packets sent from a source network endpoint to a destination network endpoint"),
+			metric2.WithUnit("{syn packets}"),
+		)
+		if err != nil {
+			log.Error("creating observable counter", "error", err)
+			return nil, err
+		}
 
+		log.Info("restricting attributes not in this list", "attributes", cfg.SelectorCfg.SelectionCfg)
+		attrs := attributes.OpenTelemetryGetters(
+			ebpf.RecordGetters(recordGettersConfig),
+			attrProv.For(attributes.NetworkFlowTCPSyn))
+		nme.flowSynPackets = NewExpirer[*ebpf.Record, metric2.Int64Counter, float64](ctx, synMetric, attrs, timeNow, cfg.Metrics.TTL)
+	}
 	if cfg.CommonCfg.Features.NetworkFlowPackets() {
 		log := log.With("metricFamily", "FlowPackets")
 		packetsMetric, err := ebpfEvents.Int64Counter(attributes.NetworkFlowPackets.OTEL,
@@ -206,6 +224,10 @@ func (me *netMetricsExporter) Do(ctx context.Context) {
 			if me.flowPackets != nil {
 				flowPackets, attrs := me.flowPackets.ForRecord(v)
 				flowPackets.Add(ctx, int64(v.Metrics.Packets), metric2.WithAttributeSet(attrs))
+			}
+			if me.flowSynPackets != nil && v.Metrics.Flags&2 == 2 {
+				flowSynPackets, attrs := me.flowSynPackets.ForRecord(v)
+				flowSynPackets.Add(ctx, 1, metric2.WithAttributeSet(attrs))
 			}
 		}
 	}

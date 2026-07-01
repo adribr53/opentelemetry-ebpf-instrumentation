@@ -27,7 +27,8 @@ var v2AppMetricsFeatureMask = export.AppO11yFeatures |
 
 var v2NetworkMetricsFeatureMask = export.FeatureNetwork |
 	export.FeatureNetworkInterZone |
-	export.FeatureNetworkFlowPackets
+	export.FeatureNetworkFlowPackets |
+	export.FeatureNetworkFlowMaxPacketSize
 
 var v2StatsMetricsFeatureMask = export.FeatureStats
 

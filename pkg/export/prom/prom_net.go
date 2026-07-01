@@ -38,15 +38,16 @@ func (p NetPrometheusConfig) Enabled() bool {
 type netMetricsReporter struct {
 	cfg *PrometheusConfig
 
-	flowBytes   *Expirer[prometheus.Counter]
-	flowPackets *Expirer[prometheus.Counter]
-
-	interZone *Expirer[prometheus.Counter]
+	flowBytes         *Expirer[prometheus.Counter]
+	flowPackets       *Expirer[prometheus.Counter]
+	flowMaxPacketSize *Expirer[prometheus.Gauge]
+	interZone         *Expirer[prometheus.Counter]
 
 	promConnect *connector.PrometheusManager
 
-	flowAttrs        []attributes.Field[*ebpf.Record, string]
-	flowPacketsAttrs []attributes.Field[*ebpf.Record, string]
+	flowAttrs              []attributes.Field[*ebpf.Record, string]
+	flowPacketsAttrs       []attributes.Field[*ebpf.Record, string]
+	flowMaxPacketSizeAttrs []attributes.Field[*ebpf.Record, string]
 
 	interZoneAttrs []attributes.Field[*ebpf.Record, string]
 
@@ -126,6 +127,19 @@ func newNetReporter(
 		register = append(register, mr.flowPackets)
 	}
 
+	if cfg.CommonCfg.Features.NetworkFlowMaxPacketSize() {
+		log.Debug("registering network flow max packet size metric")
+		mr.flowMaxPacketSizeAttrs = attributes.PrometheusGetters(
+			ebpf.RecordStringGetters(recordGettersConfig),
+			provider.For(attributes.NetworkFlowMaxPacketSize))
+
+		mr.flowMaxPacketSize = NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: attributes.NetworkFlowMaxPacketSize.Prom,
+			Help: "max packet size sent from a source network endpoint to a destination network endpoint",
+		}, labelNames(mr.flowMaxPacketSizeAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+		register = append(register, mr.flowMaxPacketSize)
+	}
+
 	if cfg.CommonCfg.Features.NetworkInterZone() {
 		log.Debug("registering network inter-zone metric")
 		mr.interZoneAttrs = attributes.PrometheusGetters(
@@ -160,6 +174,7 @@ func (r *netMetricsReporter) collectMetrics(_ context.Context) {
 			r.observeFlowBytes(flow)
 			r.observeInterZone(flow)
 			r.observeFlowPackets(flow)
+			r.observeFlowMaxPacketSize(flow)
 		}
 	}
 }
@@ -186,4 +201,12 @@ func (r *netMetricsReporter) observeFlowPackets(flow *ebpf.Record) {
 	}
 	r.flowPackets.WithLabelValues(labelValues(flow, r.flowPacketsAttrs)...).
 		Metric.Add(float64(flow.Metrics.Packets))
+}
+
+func (r *netMetricsReporter) observeFlowMaxPacketSize(flow *ebpf.Record) {
+	if r.flowMaxPacketSize == nil {
+		return
+	}
+	r.flowMaxPacketSize.WithLabelValues(labelValues(flow, r.flowMaxPacketSizeAttrs)...).
+		Metric.Set(float64(flow.Metrics.MaxPacketSize))
 }

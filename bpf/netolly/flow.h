@@ -57,8 +57,8 @@ typedef struct flow_metrics_t {
     // 0 otherwise
     // https://chromium.googlesource.com/chromiumos/docs/+/master/constants/errnos.md
     u8 errno;
-
-    u8 _pad[7];
+    u8 _pad[3];
+    u32 max_packet_size;
 } flow_metrics;
 
 // Attributes that uniquely identify a flow

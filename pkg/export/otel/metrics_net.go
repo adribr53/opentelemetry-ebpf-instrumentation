@@ -73,11 +73,12 @@ func newMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, inte
 }
 
 type netMetricsExporter struct {
-	flowBytes      *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
-	flowPackets    *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
-	interZoneBytes *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
-	expireTTL      time.Duration
-	in             <-chan []*ebpf.Record
+	flowBytes         *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
+	flowPackets       *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
+	flowMaxPacketSize *Expirer[*ebpf.Record, metric2.Int64Gauge, float64]
+	interZoneBytes    *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
+	expireTTL         time.Duration
+	in                <-chan []*ebpf.Record
 }
 
 func NetMetricsExporterProvider(
@@ -170,6 +171,25 @@ func newMetricsExporter(
 		nme.flowPackets = NewExpirer[*ebpf.Record, metric2.Int64Counter, float64](ctx, packetsMetric, attrs, timeNow, cfg.Metrics.TTL)
 	}
 
+	if cfg.CommonCfg.Features.NetworkFlowMaxPacketSize() {
+		log := log.With("metricFamily", "FlowMaxPacketSize")
+		packetsMetric, err := ebpfEvents.Int64Gauge(attributes.NetworkFlowMaxPacketSize.OTEL,
+			metric2.WithDescription("max packet size sent from a source network endpoint to a destination network endpoint"),
+			metric2.WithUnit("{bytes}"),
+		)
+		if err != nil {
+			log.Error("creating observable gauge", "error", err)
+			return nil, err
+		}
+
+		log.Debug("restricting attributes not in this list", "attributes", cfg.SelectorCfg.SelectionCfg)
+		attrs := attributes.OpenTelemetryGetters(
+			ebpf.RecordGetters(recordGettersConfig),
+			attrProv.For(attributes.NetworkFlowMaxPacketSize))
+
+		nme.flowMaxPacketSize = NewExpirer[*ebpf.Record, metric2.Int64Gauge, float64](ctx, packetsMetric, attrs, timeNow, cfg.Metrics.TTL)
+	}
+
 	if cfg.CommonCfg.Features.NetworkInterZone() {
 		log := log.With("metricFamily", "InterZoneBytes")
 		bytesMetric, err := ebpfEvents.Int64Counter(attributes.NetworkInterZone.OTEL,
@@ -206,6 +226,10 @@ func (me *netMetricsExporter) Do(ctx context.Context) {
 			if me.flowPackets != nil {
 				flowPackets, attrs := me.flowPackets.ForRecord(v)
 				flowPackets.Add(ctx, int64(v.Metrics.Packets), metric2.WithAttributeSet(attrs))
+			}
+			if me.flowMaxPacketSize != nil {
+				flowMaxPacketSize, attrs := me.flowMaxPacketSize.ForRecord(v)
+				flowMaxPacketSize.Record(ctx, int64(v.Metrics.MaxPacketSize), metric2.WithAttributeSet(attrs))
 			}
 		}
 	}

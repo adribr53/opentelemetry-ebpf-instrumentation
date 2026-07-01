@@ -97,6 +97,9 @@ func (fm *NetFlowMetrics) Accumulate(src *NetFlowMetrics) {
 	if fm.EndMonoTimeNs == 0 || fm.EndMonoTimeNs < src.EndMonoTimeNs {
 		fm.EndMonoTimeNs = src.EndMonoTimeNs
 	}
+	if src.MaxPacketSize > fm.MaxPacketSize {
+		fm.MaxPacketSize = src.MaxPacketSize
+	}
 	fm.Bytes += src.Bytes
 	fm.Packets += src.Packets
 	fm.Flags |= src.Flags

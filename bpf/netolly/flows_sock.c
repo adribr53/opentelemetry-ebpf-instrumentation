@@ -219,6 +219,8 @@ int obi_socket__filter(struct __sk_buff *skb) {
     flow_metrics *aggregate_flow = (flow_metrics *)bpf_map_lookup_elem(&aggregated_flows, &id);
     if (aggregate_flow) {
         aggregate_flow->packets += 1;
+        if (skb->len > aggregate_flow->max_packet_size)
+            aggregate_flow->max_packet_size = skb->len;
         aggregate_flow->bytes += skb->len;
         aggregate_flow->end_mono_time_ns = current_time;
         // it might happen that start_mono_time hasn't been set due to
@@ -245,6 +247,7 @@ int obi_socket__filter(struct __sk_buff *skb) {
         // Key does not exist in the map, and will need to create a new entry.
         flow_metrics new_flow = {
             .packets = 1,
+            .max_packet_size = 0,
             .bytes = skb->len,
             .start_mono_time_ns = current_time,
             .end_mono_time_ns = current_time,

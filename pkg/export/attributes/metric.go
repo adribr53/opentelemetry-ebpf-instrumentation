@@ -34,6 +34,11 @@ var (
 		Prom:    "obi_network_flow_packets_total",
 		OTEL:    "obi.network.flow.packets",
 	}
+	NetworkFlowMaxPacketSize = Name{
+		Section: "obi.network.flow.packetsize.max",
+		Prom:    "obi_network_flow_packetsize_max",
+		OTEL:    "obi.network.flow.packetsize.max",
+	}
 	NetworkInterZone = Name{
 		Section: "obi.network.inter.zone",
 		Prom:    "obi_network_inter_zone_bytes_total",

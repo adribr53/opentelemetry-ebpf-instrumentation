@@ -87,7 +87,7 @@ spec:
               value: /config/obi-config.yml
               # network_inter_zone won't have effect on non-multizone kind clusters
             - name: OTEL_EBPF_PROMETHEUS_FEATURES
-              value: "network,network_inter_zone,network_flow_packets"
+              value: "network,network_inter_zone,network_flow_packets,network_flow_packetsize_max"
             - name: OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT
               value: "100ms"
             - name: OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS

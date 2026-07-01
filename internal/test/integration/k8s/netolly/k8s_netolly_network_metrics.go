@@ -206,6 +206,10 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		assert.Equal(t, "TCP", result.Metric["transport"])
 	}
 
+	results, err = pq.Query(`obi_network_flow_packetsize_max`)
+	require.NoError(t, err)
+	require.NotEmpty(t, results)
+
 	return ctx
 }
 

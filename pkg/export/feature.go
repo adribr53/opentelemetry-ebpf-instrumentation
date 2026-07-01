@@ -24,6 +24,7 @@ const (
 	FeatureEmpty Features = 1 << iota
 	FeatureNetwork
 	FeatureNetworkFlowPackets
+	FeatureNetworkFlowMaxPacketSize
 	FeatureStatsTCPRtt
 	FeatureStatsTCPFailedConnections
 	FeatureStatsTCPRetransmits
@@ -58,6 +59,7 @@ var FeatureMapper = map[string]Features{
 	"network":                      FeatureNetwork,
 	"network_inter_zone":           FeatureNetworkInterZone,
 	"network_flow_packets":         FeatureNetworkFlowPackets,
+	"network_flow_packetsize_max":  FeatureNetworkFlowMaxPacketSize,
 	"application":                  FeatureApplicationRED,
 	"application_span":             FeatureSpanLegacy,
 	"application_span_otel":        FeatureSpanOTel,
@@ -205,6 +207,10 @@ func (f Features) NetworkBytes() bool {
 
 func (f Features) NetworkFlowPackets() bool {
 	return f.any(FeatureNetworkFlowPackets)
+}
+
+func (f Features) NetworkFlowMaxPacketSize() bool {
+	return f.any(FeatureNetworkFlowMaxPacketSize)
 }
 
 func (f Features) StatMetrics() bool {

@@ -9,6 +9,7 @@ data:
       features:
         - application
         - network
+        - network_flow_packetsize_max
         - application_span
         - application_service_graph
     attributes:

@@ -349,6 +349,9 @@ func getDefinitions(
 		NetworkFlowPackets.Section: {
 			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkGeoIP, &networkKubeAttributes},
 		},
+		NetworkFlowMaxPacketSize.Section: {
+			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkGeoIP, &networkKubeAttributes},
+		},
 		NetworkInterZone.Section: {
 			SubGroups: []*AttrReportGroup{&networkInterZone, &networkInterZoneCIDR, &networkGeoIP, &networkInterZoneKube},
 		},
